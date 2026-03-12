@@ -23,7 +23,7 @@ function App() {
           <div style={{ display: activePage === 'dashboard' ? 'block' : 'none', height: '100%' }}>
             <Dashboard onNavigate={setActivePage} />
           </div>
-          <div style={{ display: activePage === 'cleaner' ? 'block' : 'none', height: '100%' }}>
+          <div style={{ display: activePage === 'cleaner' ? 'flex' : 'none', height: '100%', overflow: 'hidden' }}>
             <Cleaner />
           </div>
           <div style={{ display: activePage === 'uninstaller' ? 'block' : 'none', height: '100%' }}>
