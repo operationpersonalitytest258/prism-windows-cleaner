@@ -2,6 +2,9 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 #[derive(Debug, Serialize, Clone)]
 pub struct MoleResult {
     pub success: bool,
@@ -28,13 +31,19 @@ fn get_mole_core_path() -> PathBuf {
         .expect("Failed to get parent directory")
         .to_path_buf();
 
-    // Walk up from exe to find mole-core (works in dev and prod)
+    // 1) Check bundled resources (installed app): exe_dir/mole-core/bin
+    let bundled = exe_dir.join("mole-core");
+    if bundled.join("bin").exists() {
+        return bundled;
+    }
+
+    // 2) Dev mode: walk up from exe to find mole-core
     let dev_path = exe_dir
         .ancestors()
         .find(|p| p.join("mole-core").join("bin").exists())
         .map(|p| p.join("mole-core"));
 
-    dev_path.unwrap_or_else(|| exe_dir.join("mole-core"))
+    dev_path.unwrap_or_else(|| bundled)
 }
 
 /// Run a Mole PowerShell script with optional arguments
@@ -47,6 +56,8 @@ fn run_mole_script(script_name: &str, args: &[&str]) -> Result<MoleResult, Strin
     }
 
     let mut cmd = Command::new("powershell");
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     cmd.arg("-ExecutionPolicy")
         .arg("Bypass")
         .arg("-NoProfile")
@@ -158,7 +169,10 @@ Write-Output "清理完成: $cleaned 個成功, $failed 個跳過, 釋放 ${tota
 
         let full_script = format!("{}{}", ps_script, action_part);
 
-        let output = Command::new("powershell")
+        let mut cmd = Command::new("powershell");
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        let output = cmd
             .arg("-ExecutionPolicy").arg("Bypass")
             .arg("-NoProfile")
             .arg("-NonInteractive")
@@ -227,7 +241,10 @@ foreach ($p in $paths) {
 $apps | Sort-Object -Property SizeKB -Descending | ConvertTo-Json -Depth 3
 "#;
 
-        let output = Command::new("powershell")
+        let mut cmd = Command::new("powershell");
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        let output = cmd
             .arg("-ExecutionPolicy").arg("Bypass")
             .arg("-NoProfile")
             .arg("-NonInteractive")
@@ -325,7 +342,10 @@ try {{
 }}
 "#, app_name.replace("'", "''"));
 
-        let output = Command::new("powershell")
+        let mut cmd = Command::new("powershell");
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        let output = cmd
             .arg("-ExecutionPolicy").arg("Bypass")
             .arg("-NoProfile")
             .arg("-NonInteractive")
