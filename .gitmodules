@@ -1,0 +1,4 @@
+[submodule "mole-core"]
+	path = mole-core
+	url = https://github.com/tw93/Mole.git
+	branch = windows
