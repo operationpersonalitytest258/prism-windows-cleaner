@@ -1,0 +1,74 @@
+.page-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.page-desc {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+}
+
+/* Categories */
+.cleaner-categories {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-lg);
+}
+
+.category-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+}
+
+.category-icon {
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: rgba(148, 163, 184, 0.06);
+  flex-shrink: 0;
+}
+
+.category-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.category-label {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.category-desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-dim);
+}
+
+/* Scan progress */
+.scan-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.scan-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* Actions */
+.cleaner-actions {
+  display: flex;
+  gap: var(--space-lg);
+}

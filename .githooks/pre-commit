@@ -1,0 +1,25 @@
+#!/bin/sh
+# Gitleaks pre-commit hook — blocks commits containing secrets
+# Installed by Prism security setup
+
+# Check if gitleaks is installed
+if ! command -v gitleaks &> /dev/null; then
+    echo "⚠️  gitleaks not installed. Skipping secret scan."
+    echo "   Install: winget install Gitleaks.Gitleaks"
+    exit 0
+fi
+
+echo "🔍 Scanning for secrets with gitleaks..."
+gitleaks protect --staged --verbose
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+    echo ""
+    echo "❌ SECRET DETECTED! Commit blocked."
+    echo "   Review the findings above and remove any secrets."
+    echo "   To bypass (NOT recommended): git commit --no-verify"
+    exit 1
+fi
+
+echo "✅ No secrets found."
+exit 0

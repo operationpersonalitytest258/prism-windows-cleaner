@@ -1,0 +1,44 @@
+.purge-targets {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-md);
+}
+
+.purge-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.purge-icon { font-size: 24px; }
+
+.purge-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.purge-label { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text); }
+.purge-pattern { font-size: var(--font-size-xs); color: var(--color-text-dim); font-family: 'Cascadia Code', monospace; }
+
+.purge-check { color: var(--color-accent); }
+
+.purge-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.purge-progress-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.purge-actions {
+  display: flex;
+  gap: var(--space-md);
+  justify-content: flex-end;
+}
