@@ -1,9 +1,203 @@
 use serde::Serialize;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::io::BufRead;
+use regex::Regex;
+use tauri::{AppHandle, Emitter};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+
+/// Structured scan event emitted to the frontend in real-time
+#[derive(Debug, Serialize, Clone)]
+#[serde(tag = "type")]
+pub enum ScanEvent {
+    #[serde(rename = "section")]
+    Section { name: String },
+    #[serde(rename = "item")]
+    Item { name: String, size: String, count: Option<u32> },
+    #[serde(rename = "success")]
+    Success { name: String },
+    #[serde(rename = "warning")]
+    Warning { name: String },
+    #[serde(rename = "info")]
+    Info { text: String },
+    #[serde(rename = "summary")]
+    Summary { total_size: String, item_count: u32, categories: u32 },
+    #[serde(rename = "done")]
+    Done { success: bool },
+}
+
+/// Strip ANSI escape codes from a string
+fn strip_ansi(s: &str) -> String {
+    let re = Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
+    re.replace_all(s, "").to_string()
+}
+
+/// Parse a single line of CLI output into a ScanEvent
+fn parse_scan_line(line: &str) -> Option<ScanEvent> {
+    let clean = strip_ansi(line).trim().to_string();
+    if clean.is_empty() { return None; }
+
+    // Section header: "➤ xxx" or ">" at start
+    if clean.starts_with('➤') || clean.starts_with("> ") {
+        let name = clean.trim_start_matches('➤').trim_start_matches('>').trim().to_string();
+        if !name.is_empty() {
+            return Some(ScanEvent::Section { name });
+        }
+    }
+
+    // Dry-run item: "→ xxx (N items, SIZE dry)" or "→ xxx (SIZE dry)"
+    if clean.starts_with('→') || clean.starts_with("-> ") {
+        let content = clean.trim_start_matches('→').trim_start_matches("->").trim();
+        // Parse: "name (count items, size dry)" or "name (size dry)" or "name (size)"
+        if let Some(paren_start) = content.rfind('(') {
+            let name = content[..paren_start].trim().to_string();
+            let paren_content = content[paren_start+1..].trim_end_matches(')').trim();
+            
+            // Try to extract count and size
+            let mut count: Option<u32> = None;
+            let mut size = String::new();
+            
+            for part in paren_content.split(',') {
+                let part = part.trim().trim_end_matches("dry").trim();
+                if part.contains("items") || part.contains("item") {
+                    if let Some(n) = part.split_whitespace().next() {
+                        count = n.parse().ok();
+                    }
+                } else if part.contains("dirs") || part.contains("dir") {
+                    if let Some(n) = part.split_whitespace().next() {
+                        count = n.parse().ok();
+                    }
+                } else if !part.is_empty() {
+                    size = part.to_string();
+                }
+            }
+            
+            if !name.is_empty() {
+                return Some(ScanEvent::Item { name, size, count });
+            }
+        } else {
+            let name = content.to_string();
+            if !name.is_empty() {
+                return Some(ScanEvent::Item { name, size: String::new(), count: None });
+            }
+        }
+    }
+
+    // Success: "✓ xxx" or "+ xxx"
+    if clean.starts_with('✓') || clean.starts_with("+ ") {
+        let name = clean.trim_start_matches('✓').trim_start_matches('+').trim().to_string();
+        return Some(ScanEvent::Success { name });
+    }
+
+    // Summary lines
+    if clean.starts_with("Potential space:") || clean.starts_with("Space freed:") {
+        let size = clean.split(':').nth(1).unwrap_or("").trim().to_string();
+        return Some(ScanEvent::Info { text: format!("💾 {}", clean) });
+    }
+    if clean.starts_with("Items found:") || clean.starts_with("Items cleaned:") {
+        return Some(ScanEvent::Info { text: format!("📦 {}", clean) });
+    }
+    if clean.starts_with("Categories:") {
+        return Some(ScanEvent::Info { text: format!("📂 {}", clean) });
+    }
+    if clean.contains("Dry run complete") || clean.contains("Cleanup complete") {
+        return Some(ScanEvent::Info { text: format!("✅ {}", clean) });
+    }
+
+    // System info line
+    if clean.contains("Free space:") || clean.contains("Windows") {
+        return Some(ScanEvent::Info { text: format!("⚙ {}", clean) });
+    }
+
+    // Skip noise
+    if clean == "Clean Your Windows" || clean.starts_with("Dry Run Mode") 
+        || clean.starts_with("Name") || clean.starts_with("----")
+        || clean.starts_with("Run without") || clean.starts_with("Detailed list") {
+        return None;
+    }
+
+    // Generic text
+    if clean.len() > 2 {
+        return Some(ScanEvent::Info { text: clean });
+    }
+
+    None
+}
+
+/// Run a Mole PowerShell script with streaming output via Tauri events
+fn run_mole_script_streaming(
+    app: &AppHandle,
+    script_name: &str,
+    args: &[&str],
+    event_name: &str,
+) -> Result<MoleResult, String> {
+    let mole_path = get_mole_core_path();
+    let script_path = mole_path.join("bin").join(script_name);
+
+    if !script_path.exists() {
+        return Err(format!("Script not found: {}", script_path.display()));
+    }
+
+    let mut cmd = Command::new("powershell");
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    cmd.arg("-ExecutionPolicy").arg("Bypass")
+        .arg("-NoProfile")
+        .arg("-NonInteractive")
+        .arg("-File")
+        .arg(&script_path);
+
+    for arg in args {
+        cmd.arg(arg);
+    }
+
+    cmd.current_dir(&mole_path);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn: {}", e))?;
+    
+    let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+    let reader = std::io::BufReader::new(stdout);
+    
+    let mut full_stdout = String::new();
+    
+    for line in reader.lines() {
+        match line {
+            Ok(line_str) => {
+                full_stdout.push_str(&line_str);
+                full_stdout.push('\n');
+                
+                if let Some(event) = parse_scan_line(&line_str) {
+                    let _ = app.emit(event_name, &event);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    
+    let status = child.wait().map_err(|e| format!("Process error: {}", e))?;
+    
+    // Emit done event
+    let _ = app.emit(event_name, &ScanEvent::Done { success: status.success() });
+    
+    let stderr = child.stderr
+        .map(|mut s| {
+            let mut buf = String::new();
+            std::io::Read::read_to_string(&mut s, &mut buf).ok();
+            buf
+        })
+        .unwrap_or_default();
+    
+    Ok(MoleResult {
+        success: status.success(),
+        stdout: full_stdout,
+        stderr,
+        exit_code: status.code(),
+    })
+}
 
 #[derive(Debug, Serialize, Clone)]
 pub struct MoleResult {
@@ -88,6 +282,15 @@ pub async fn mole_clean(dry_run: bool) -> Result<MoleResult, String> {
     let handle = std::thread::spawn(move || {
         let args: Vec<&str> = if dry_run { vec!["--dry-run"] } else { vec![] };
         run_mole_script("clean.ps1", &args)
+    });
+    handle.join().map_err(|_| "Thread panic".to_string())?
+}
+
+#[tauri::command]
+pub async fn mole_clean_streaming(app: AppHandle, dry_run: bool) -> Result<MoleResult, String> {
+    let handle = std::thread::spawn(move || {
+        let args: Vec<&str> = if dry_run { vec!["--dry-run"] } else { vec![] };
+        run_mole_script_streaming(&app, "clean.ps1", &args, "scan-progress")
     });
     handle.join().map_err(|_| "Thread panic".to_string())?
 }

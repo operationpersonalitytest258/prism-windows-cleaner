@@ -7,6 +7,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             commands::mole_bridge::mole_clean,
+            commands::mole_bridge::mole_clean_streaming,
             commands::mole_bridge::mole_optimize,
             commands::mole_bridge::mole_purge,
             commands::mole_bridge::mole_status,
