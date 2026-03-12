@@ -329,8 +329,9 @@ html, body, #root {
    ============================================ */
 
 .result-output {
-  max-height: 280px;
-  overflow-y: auto;
+  max-height: calc(100vh - 420px);
+  min-height: 120px;
+  overflow: auto !important;
 }
 
 .result-output pre {

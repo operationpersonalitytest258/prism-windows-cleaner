@@ -1,15 +1,7 @@
-.page.cleaner {
-  height: 100%;
-  width: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-
 .page-header {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
-  flex-shrink: 0;
 }
 
 .page-desc {
@@ -23,7 +15,6 @@
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: var(--space-lg);
-  flex-shrink: 0;
 }
 
 .category-card {
@@ -70,8 +61,8 @@
   flex-direction: column;
   gap: var(--space-md);
   margin-top: var(--space-md);
-  flex: 1;
-  min-height: 0;
+  max-height: calc(100vh - 460px);
+  min-height: 200px;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -240,7 +231,6 @@
   display: flex;
   gap: var(--space-lg);
   margin-top: var(--space-md);
-  flex-shrink: 0;
 }
 
 /* Animations */
