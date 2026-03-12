@@ -15,34 +15,36 @@ import './index.css';
 function App() {
   const [activePage, setActivePage] = useState<PageId>('dashboard');
 
-  const renderPage = () => {
-    switch (activePage) {
-      case 'dashboard':
-        return <Dashboard onNavigate={setActivePage} />;
-      case 'cleaner':
-        return <Cleaner />;
-      case 'uninstaller':
-        return <Uninstaller />;
-      case 'optimizer':
-        return <Optimizer />;
-      case 'analyzer':
-        return <Analyzer />;
-      case 'monitor':
-        return <Monitor />;
-      case 'purger':
-        return <Purger />;
-      case 'settings':
-        return <Settings />;
-      default:
-        return <Dashboard onNavigate={setActivePage} />;
-    }
-  };
-
   return (
     <FluentProvider theme={moleDarkTheme}>
       <div className="app-layout">
         <Sidebar activePage={activePage} onNavigate={setActivePage} />
-        <main className="main-content">{renderPage()}</main>
+        <main className="main-content">
+          <div style={{ display: activePage === 'dashboard' ? 'block' : 'none', height: '100%' }}>
+            <Dashboard onNavigate={setActivePage} />
+          </div>
+          <div style={{ display: activePage === 'cleaner' ? 'block' : 'none', height: '100%' }}>
+            <Cleaner />
+          </div>
+          <div style={{ display: activePage === 'uninstaller' ? 'block' : 'none', height: '100%' }}>
+            <Uninstaller />
+          </div>
+          <div style={{ display: activePage === 'optimizer' ? 'block' : 'none', height: '100%' }}>
+            <Optimizer />
+          </div>
+          <div style={{ display: activePage === 'analyzer' ? 'block' : 'none', height: '100%' }}>
+            <Analyzer />
+          </div>
+          <div style={{ display: activePage === 'monitor' ? 'block' : 'none', height: '100%' }}>
+            <Monitor />
+          </div>
+          <div style={{ display: activePage === 'purger' ? 'block' : 'none', height: '100%' }}>
+            <Purger />
+          </div>
+          <div style={{ display: activePage === 'settings' ? 'block' : 'none', height: '100%' }}>
+            <Settings />
+          </div>
+        </main>
       </div>
     </FluentProvider>
   );
