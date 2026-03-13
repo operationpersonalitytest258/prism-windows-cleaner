@@ -81,7 +81,9 @@
     "reclaimableSpace": "可回收空間",
     "freedSpace": "已釋放空間",
     "artifacts": "產物數量",
-    "cleaned": "已清理"
+    "cleaned": "已清理",
+    "skipped": "已跳過",
+    "scanAgain": "重新掃描"
   },
   "analyzer": {
     "title": "磁碟空間分析",

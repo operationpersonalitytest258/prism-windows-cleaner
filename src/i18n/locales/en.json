@@ -81,7 +81,9 @@
     "reclaimableSpace": "Reclaimable Space",
     "freedSpace": "Space Freed",
     "artifacts": "Artifacts",
-    "cleaned": "Cleaned"
+    "cleaned": "Cleaned",
+    "skipped": "Skipped",
+    "scanAgain": "Scan Again"
   },
   "analyzer": {
     "title": "Disk Space Analysis",

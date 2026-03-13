@@ -9,7 +9,7 @@ pub fn run() {
             commands::mole_bridge::mole_clean,
             commands::mole_bridge::mole_clean_streaming,
             commands::mole_bridge::mole_optimize,
-            commands::mole_bridge::mole_purge,
+            commands::mole_bridge::mole_purge_streaming,
             commands::mole_bridge::mole_status,
             commands::mole_bridge::mole_analyze,
             commands::mole_bridge::list_installed_apps,

@@ -1,7 +1,7 @@
 .purge-targets {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-md);
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-sm);
 }
 
 .purge-card {
@@ -141,6 +141,51 @@
   animation: slideIn 0.4s ease-out;
 }
 
+/* After cleanup: green success gradient */
+.purge-summary-cleaned {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(52, 211, 153, 0.08) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.summary-grid {
+  display: flex;
+  gap: var(--space-xl);
+  align-items: center;
+  justify-content: center;
+}
+
+.summary-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.summary-stat .summary-value {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.summary-stat.main .summary-value {
+  font-size: 2rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--color-accent), var(--color-green));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.summary-stat .summary-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.summary-value.success-text { color: var(--color-green) !important; }
+.summary-value.failed-text { color: var(--color-red) !important; }
+
 /* Animations */
 @keyframes slideIn {
   from {
@@ -151,4 +196,19 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Streaming status text */
+.purge-status-text {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 var(--space-xs);
+}
+
+/* Success item highlight */
+.purge-result-item.success {
+  border-left: 3px solid var(--color-green);
 }

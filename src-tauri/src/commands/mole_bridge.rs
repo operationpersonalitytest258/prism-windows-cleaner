@@ -303,33 +303,279 @@ pub async fn mole_optimize(dry_run: bool) -> Result<MoleResult, String> {
     handle.join().map_err(|_| "Thread panic".to_string())?
 }
 
-/// Purge build artifacts — uses inline non-interactive scanning
-/// (purge.ps1 is an interactive TUI that hangs under -NonInteractive)
+/// Purge build artifacts with streaming progress — emits events line-by-line
 #[tauri::command]
-pub async fn mole_purge(dry_run: bool) -> Result<MoleResult, String> {
+pub async fn mole_purge_streaming(app: AppHandle, dry_run: bool) -> Result<MoleResult, String> {
     let handle = std::thread::spawn(move || {
-        let ps_script = r#"
+        let ps_script = build_purge_script(dry_run);
+
+        let mut cmd = Command::new("powershell");
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        cmd.arg("-ExecutionPolicy").arg("Bypass")
+            .arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-Command")
+            .arg(&ps_script);
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn: {}", e))?;
+        let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+        let reader = std::io::BufReader::new(stdout);
+
+        let mut full_stdout = String::new();
+
+        for line in reader.lines() {
+            match line {
+                Ok(line_str) => {
+                    full_stdout.push_str(&line_str);
+                    full_stdout.push('\n');
+
+                    // Emit progress event for each line
+                    if let Some(event) = parse_purge_line(&line_str) {
+                        let _ = app.emit("purge-progress", &event);
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+
+        let status = child.wait().map_err(|e| format!("Process error: {}", e))?;
+        let _ = app.emit("purge-progress", &PurgeEvent::Done { success: status.success() });
+
+        let stderr = child.stderr
+            .map(|mut s| {
+                let mut buf = String::new();
+                std::io::Read::read_to_string(&mut s, &mut buf).ok();
+                buf
+            })
+            .unwrap_or_default();
+
+        Ok(MoleResult {
+            success: status.success(),
+            stdout: full_stdout,
+            stderr,
+            exit_code: status.code(),
+        })
+    });
+    handle.join().map_err(|_| "Thread panic".to_string())?
+}
+
+/// Structured purge event emitted to the frontend in real-time
+#[derive(Debug, Serialize, Clone)]
+#[serde(tag = "type")]
+pub enum PurgeEvent {
+    #[serde(rename = "scanning")]
+    Scanning { text: String },
+    #[serde(rename = "item")]
+    Item { path: String, name: String, size_mb: f64, status: Option<String> },
+    #[serde(rename = "summary")]
+    Summary { total_count: u32, total_size: String, cleaned: Option<u32>, failed: Option<u32> },
+    #[serde(rename = "done")]
+    Done { success: bool },
+}
+
+/// Static compiled regex patterns for parse_purge_line (avoid re-compiling per line)
+static PURGE_SUCCESS_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+    Regex::new(r"^\s*\[OK\]\s*([\d.]+)\s*MB\s+(.+)$").unwrap()
+});
+static PURGE_FAIL_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+    Regex::new(r"^\s*\[FAIL\]\s*([\d.]+)\s*MB\s+(.+?)\s*\((.+)\)\s*$").unwrap()
+});
+static PURGE_ITEM_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+    Regex::new(r"^\s*([\d.]+)\s*MB\s+(.+)$").unwrap()
+});
+static PURGE_SUMMARY_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+    Regex::new(r"找到\s*(\d+)\s*個產物.*?(\d+\.?\d*)\s*GB").unwrap()
+});
+static PURGE_CLEAN_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+    Regex::new(r"清理完成.*?(\d+)\s*個成功.*?(\d+)\s*個跳過.*?(\d+\.?\d*)\s*GB").unwrap()
+});
+
+/// Parse a single line of purge output into a PurgeEvent
+fn parse_purge_line(line: &str) -> Option<PurgeEvent> {
+    let clean = strip_ansi(line).trim().to_string();
+    if clean.is_empty() { return None; }
+
+    // Skip headers
+    if clean.starts_with("===") {
+        return Some(PurgeEvent::Scanning { text: clean.trim_matches('=').trim().to_string() });
+    }
+
+    // Parse: "  ✓  35405.1 MB  D:\path" (clean success)
+    if let Some(caps) = PURGE_SUCCESS_RE.captures(&clean) {
+        let size_mb: f64 = caps[1].parse().unwrap_or(0.0);
+        let full_path = caps[2].trim().to_string();
+        let name = full_path.split('\\').last().unwrap_or(&full_path).to_string();
+        return Some(PurgeEvent::Item { path: full_path, name, size_mb, status: Some("success".into()) });
+    }
+
+    // Parse: "  [FAIL]  37000.0 MB  C:\path  (access denied)" (clean failed)
+    if let Some(caps) = PURGE_FAIL_RE.captures(&clean) {
+        let size_mb: f64 = caps[1].parse().unwrap_or(0.0);
+        let full_path = caps[2].trim().to_string();
+        let name = full_path.split('\\').last().unwrap_or(&full_path).to_string();
+        return Some(PurgeEvent::Item { path: full_path, name, size_mb, status: Some("failed".into()) });
+    }
+
+    // Parse: "  35405.1 MB  D:\path\to\target" (dry-run item)
+    if let Some(caps) = PURGE_ITEM_RE.captures(&clean) {
+        let size_mb: f64 = caps[1].parse().unwrap_or(0.0);
+        let full_path = caps[2].trim().to_string();
+        let name = full_path.split('\\').last().unwrap_or(&full_path).to_string();
+        return Some(PurgeEvent::Item { path: full_path, name, size_mb, status: None });
+    }
+
+    // Parse summary: "找到 334 個產物，共 174.88 GB"
+    if let Some(caps) = PURGE_SUMMARY_RE.captures(&clean) {
+        return Some(PurgeEvent::Summary {
+            total_count: caps[1].parse().unwrap_or(0),
+            total_size: format!("{} GB", &caps[2]),
+            cleaned: None,
+            failed: None,
+        });
+    }
+
+    // Parse clean summary: "清理完成: 10 個成功, 2 個跳過, 釋放 5.5 GB"
+    if let Some(caps) = PURGE_CLEAN_RE.captures(&clean) {
+        return Some(PurgeEvent::Summary {
+            total_count: caps[1].parse::<u32>().unwrap_or(0) + caps[2].parse::<u32>().unwrap_or(0),
+            total_size: format!("{} GB", &caps[3]),
+            cleaned: Some(caps[1].parse().unwrap_or(0)),
+            failed: Some(caps[2].parse().unwrap_or(0)),
+        });
+    }
+
+    // Generic info text
+    if clean.len() > 2 && !clean.starts_with("執行清理") {
+        return Some(PurgeEvent::Scanning { text: clean });
+    }
+
+    None
+}
+
+/// Build the PowerShell purge script (shared between streaming and non-streaming)
+fn build_purge_script(dry_run: bool) -> String {
+    let ps_script = r#"
 $ErrorActionPreference = "SilentlyContinue"
-$searchPaths = @(
-    "$env:USERPROFILE\Documents",
-    "$env:USERPROFILE\Projects",
-    "$env:USERPROFILE\Code",
-    "D:\Projects", "D:\Code", "D:\OtherProject"
+
+# ── Drive Discovery ──────────────────────────────────────────────────
+$drives = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" |
+    Select-Object -ExpandProperty DeviceID
+$skipDirs = @('Windows','Program Files','Program Files (x86)',
+    'ProgramData','$Recycle.Bin','System Volume Information',
+    'Recovery','PerfLogs','Config.Msi','MSOCache')
+$searchPaths = @()
+foreach ($drv in $drives) {
+    Get-ChildItem -Path "$drv\" -Directory -Force -ErrorAction SilentlyContinue |
+        Where-Object { $skipDirs -notcontains $_.Name } |
+        ForEach-Object { $searchPaths += $_.FullName }
+}
+
+# ── Protected Paths (never delete) ──────────────────────────────────
+$protectedPatterns = @(
+    '\.cargo\bin', '\.cargo\registry',
+    '\.rustup',
+    '\.pub-cache',
+    '\nvm4w\', '\nvm\',
+    '\AppData\Roaming\npm',
+    '\AppData\Local\Pub',
+    '\flutter\bin',
+    '\Python\', '\Python3',
+    '\.fvm\',
+    '\.gradle\caches', '\.gradle\wrapper', '\.gradle\daemon',
+    "\.cache"
 )
-$artifactDirs = @("node_modules","target","build","dist",".next",".nuxt",
-    "__pycache__",".venv","venv",".gradle",".dart_tool",".turbo","obj","bin",".parcel-cache")
+function Test-Protected($path) {
+    foreach ($p in $protectedPatterns) {
+        if ($path -like "*$p*") { return $true }
+    }
+    return $false
+}
+
+# ── Tier 1: Always-Safe (unique directory names) ────────────────────
+$alwaysSafe = @(
+    'node_modules',    # Node.js deps
+    '.gradle',         # Gradle project cache (NOT user-level ~/.gradle)
+    '.dart_tool',      # Dart/Flutter
+    '.next',           # Next.js
+    '.nuxt',           # Nuxt.js
+    '.turbo',          # Turborepo
+    '.parcel-cache',   # Parcel bundler
+    '__pycache__',     # Python bytecode cache
+    '.venv', 'venv',   # Python virtualenv
+    '.terraform',      # Terraform providers/plugins
+    'zig-cache',       # Zig build cache
+    'zig-out',         # Zig build output
+    '.build',          # Swift Package Manager
+    '_build',          # Elixir Mix
+    'Pods',            # iOS CocoaPods
+    '.angular',        # Angular cache
+    '.svelte-kit',     # SvelteKit
+    '.expo'            # Expo (React Native)
+)
+
+# ── Tier 2: Context-Required (generic names, need marker file) ──────
+# Each entry: directory name -> list of parent marker files/patterns
+# The artifact dir is only valid if its PARENT contains one of these markers
+$contextRequired = @{
+    'target' = @('Cargo.toml','pom.xml')                          # Rust + Maven
+    'build'  = @('build.gradle','build.gradle.kts','CMakeLists.txt',
+                  'pubspec.yaml','meson.build')                    # Gradle/CMake/Flutter/Meson
+    'dist'   = @('package.json','webpack.config.js','vite.config.ts',
+                  'vite.config.js','rollup.config.js','tsconfig.json')  # Node bundlers
+    'bin'    = @('*.csproj','*.fsproj','*.vbproj','*.sln')         # .NET
+    'obj'    = @('*.csproj','*.fsproj','*.vbproj','*.sln')         # .NET
+    'vendor' = @('composer.json','go.mod')                         # PHP Composer / Go
+    'deps'   = @('mix.exs')                                        # Elixir Mix
+    'Library' = @('ProjectSettings')                               # Unity (check sibling dir)
+    'Temp'    = @('ProjectSettings')                               # Unity
+}
+
+function Test-HasMarker($parentPath, $markers) {
+    foreach ($m in $markers) {
+        if ($m.StartsWith('*.')) {
+            # Wildcard pattern (e.g. *.csproj) — use Get-ChildItem -Filter
+            $hits = Get-ChildItem -Path $parentPath -Filter $m -File -Force -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($hits) { return $true }
+        } else {
+            if (Test-Path (Join-Path $parentPath $m)) { return $true }
+        }
+    }
+    return $false
+}
+
+# ── Scan ─────────────────────────────────────────────────────────────
+$allTargets = $alwaysSafe + @($contextRequired.Keys | ForEach-Object { $_ })
+$allTargets = $allTargets | Select-Object -Unique
 $totalSize = 0; $found = @()
 foreach ($sp in $searchPaths) {
     if (-not (Test-Path $sp)) { continue }
-    foreach ($art in $artifactDirs) {
-        Get-ChildItem -Path $sp -Filter $art -Directory -Recurse -Depth 4 -Force -ErrorAction SilentlyContinue |
+    foreach ($art in $allTargets) {
+        Get-ChildItem -Path $sp -Filter $art -Directory -Recurse -Depth 6 -Force -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -notlike "*\node_modules\*" -or $_.Name -eq "node_modules" } |
         ForEach-Object {
-            $sz = (Get-ChildItem $_.FullName -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+            $dirPath = $_.FullName
+            $dirName = $_.Name
+
+            # Skip protected paths
+            if (Test-Protected $dirPath) { return }
+
+            # Skip .gradle inside user home (it's the global cache, not a project artifact)
+            if ($dirName -eq '.gradle' -and $dirPath -like "*$env:USERPROFILE\.gradle*") { return }
+
+            # Context validation for Tier 2 directories
+            if ($contextRequired.ContainsKey($dirName)) {
+                $parentDir = Split-Path $dirPath -Parent
+                if (-not (Test-HasMarker $parentDir $contextRequired[$dirName])) { return }
+            }
+
+            $sz = (Get-ChildItem $dirPath -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
             if ($null -eq $sz) { $sz = 0 }
             $szMB = [Math]::Round($sz / 1MB, 1)
             if ($szMB -gt 0.1) {
-                $found += [PSCustomObject]@{ Path=$_.FullName; SizeMB=$szMB; Name=$_.Name }
+                $found += [PSCustomObject]@{ Path=$dirPath; SizeMB=$szMB; Name=$dirName }
                 $totalSize += $sz
             }
         }
@@ -338,8 +584,8 @@ foreach ($sp in $searchPaths) {
 $totalGB = [Math]::Round($totalSize / 1GB, 2)
 "#;
 
-        let action_part = if dry_run {
-            r#"
+    let action_part = if dry_run {
+        r#"
 Write-Output "=== 構建產物掃描結果 (Dry Run) ==="
 Write-Output ""
 $found | Sort-Object -Property SizeMB -Descending | ForEach-Object {
@@ -349,49 +595,31 @@ Write-Output ""
 Write-Output "找到 $($found.Count) 個產物，共 ${totalGB} GB"
 Write-Output "執行清理可釋放此空間"
 "#
-        } else {
-            r#"
+    } else {
+        r#"
 Write-Output "=== 開始清理構建產物 ==="
 Write-Output ""
-$cleaned = 0; $failed = 0
+$cleaned = 0; $failed = 0; $cleanedSize = 0
 $found | Sort-Object -Property SizeMB -Descending | ForEach-Object {
     try {
         Remove-Item -Path $_.Path -Recurse -Force -ErrorAction Stop
-        Write-Output ("  ✓ {0,8} MB  {1}" -f $_.SizeMB, $_.Path)
+        Write-Output ("  [OK] {0,8} MB  {1}" -f $_.SizeMB, $_.Path)
         $cleaned++
+        $cleanedSize += ($_.SizeMB * 1MB)
     } catch {
-        Write-Output ("  ✗ {0}  (access denied)" -f $_.Path)
+        Write-Output ("  [FAIL] {0,8} MB  {1}  (access denied)" -f $_.SizeMB, $_.Path)
         $failed++
     }
 }
+$cleanedGB = [Math]::Round($cleanedSize / 1GB, 2)
 Write-Output ""
-Write-Output "清理完成: $cleaned 個成功, $failed 個跳過, 釋放 ${totalGB} GB"
+Write-Output "清理完成: $cleaned 個成功, $failed 個跳過, 釋放 ${cleanedGB} GB"
 "#
-        };
+    };
 
-        let full_script = format!("{}{}", ps_script, action_part);
-
-        let mut cmd = Command::new("powershell");
-        #[cfg(target_os = "windows")]
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        let output = cmd
-            .arg("-ExecutionPolicy").arg("Bypass")
-            .arg("-NoProfile")
-            .arg("-NonInteractive")
-            .arg("-Command")
-            .arg(&full_script)
-            .output()
-            .map_err(|e| format!("Failed to execute: {}", e))?;
-
-        Ok(MoleResult {
-            success: output.status.success(),
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            exit_code: output.status.code(),
-        })
-    });
-    handle.join().map_err(|_| "Thread panic".to_string())?
+    format!("{}{}", ps_script, action_part)
 }
+
 
 #[tauri::command]
 pub async fn mole_status() -> Result<MoleResult, String> {
