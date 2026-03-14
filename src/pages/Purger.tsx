@@ -11,7 +11,7 @@ import {
 } from '@fluentui/react-icons';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Button, Spinner, ProgressBar } from '@fluentui/react-components';
+import { Button, Spinner, ProgressBar, Checkbox } from '@fluentui/react-components';
 import type { MoleResult } from '../types';
 import './Purger.css';
 
@@ -61,6 +61,7 @@ export function Purger() {
   const [summary, setSummary] = useState<PurgeSummary | null>(null);
   const [statusText, setStatusText] = useState('');
   const [error, setError] = useState('');
+  const [checkedItems, setCheckedItems] = useState<Record<number, boolean>>({});
 
   // Listen for purge-progress events
   useEffect(() => {
@@ -73,12 +74,19 @@ export function Purger() {
           break;
 
         case 'item':
-          setItems(prev => [...prev, {
-            path: data.path,
-            sizeMB: data.size_mb,
-            name: data.name,
-            status: data.status as 'success' | 'failed' | undefined,
-          }]);
+          setItems(prev => {
+            const newItems = [...prev, {
+              path: data.path,
+              sizeMB: data.size_mb,
+              name: data.name,
+              status: data.status as 'success' | 'failed' | undefined,
+            }];
+            // Auto-check new items during dry run (no status = dry run item)
+            if (!data.status) {
+              setCheckedItems(prev => ({ ...prev, [newItems.length - 1]: true }));
+            }
+            return newItems;
+          });
           break;
 
         case 'summary':
@@ -91,7 +99,6 @@ export function Purger() {
           break;
 
         case 'done':
-          // Phase transition is handled by the handlePurge finally block
           break;
       }
     });
@@ -105,6 +112,7 @@ export function Purger() {
     setSummary(null);
     setStatusText('');
     setError('');
+    setCheckedItems({});
     try {
       await invoke<MoleResult>('mole_purge_streaming', { dryRun: true });
       setPhase('scanned');
@@ -115,16 +123,30 @@ export function Purger() {
   };
 
   const handleClean = async () => {
+    // Collect paths of checked items only
+    const selectedPaths = items
+      .filter((_, i) => checkedItems[i])
+      .map(item => item.path);
+
+    if (selectedPaths.length === 0) return;
+
+    // Save state for error recovery
+    const prevItems = [...items];
+    const prevChecked = { ...checkedItems };
+
     setPhase('cleaning');
     setItems([]);
     setSummary(null);
     setStatusText('');
     setError('');
     try {
-      await invoke<MoleResult>('mole_purge_streaming', { dryRun: false });
+      await invoke<MoleResult>('mole_purge_paths', { paths: selectedPaths });
       setPhase('cleaned');
     } catch (err) {
       setError(`${err}`);
+      // Restore previous state so user can retry
+      setItems(prevItems);
+      setCheckedItems(prevChecked);
       setPhase('scanned');
     }
   };
@@ -135,16 +157,35 @@ export function Purger() {
     setSummary(null);
     setStatusText('');
     setError('');
+    setCheckedItems({});
   };
 
   const isRunning = phase === 'scanning' || phase === 'cleaning';
+
+  // Calculate selected totals
+  const checkedCount = Object.values(checkedItems).filter(Boolean).length;
+  const selectedSizeMB = items.reduce((acc, item, i) => checkedItems[i] ? acc + item.sizeMB : acc, 0);
+  const selectedSizeStr = formatSize(selectedSizeMB);
+  const allChecked = items.length > 0 && checkedCount === items.length;
+
+  const toggleItem = (index: number) => {
+    setCheckedItems(prev => ({ ...prev, [index]: !prev[index] }));
+  };
+  const selectAll = () => {
+    const next: Record<number, boolean> = {};
+    items.forEach((_, i) => { next[i] = true; });
+    setCheckedItems(next);
+  };
+  const deselectAll = () => {
+    setCheckedItems({});
+  };
 
   return (
     <div className="page purger">
       <h2><FolderZip24Regular /> {t('purger.title')}</h2>
       <p className="page-desc">{t('purger.desc')}</p>
 
-      <div className="purge-targets">
+      <div className={`purge-targets ${phase !== 'idle' ? 'collapsed' : ''}`}>
         {targets.map((tgt, i) => (
           <div key={tgt.id} className={`glass-card purge-card stagger-${i + 1}`}>
             <div className="purge-icon" style={{ color: tgt.color }}>
@@ -162,51 +203,72 @@ export function Purger() {
       {/* Action buttons */}
       <div className="purge-actions">
         {phase === 'cleaned' ? (
-          /* After cleanup: show "Scan Again" button to restart */
-          <Button size="large" appearance="subtle" icon={<ArrowSync24Regular />} onClick={handleReset}>
-            {t('purger.scanAgain')}
-          </Button>
+          <>
+            <Button size="large" appearance="subtle" icon={<ArrowSync24Regular />} onClick={handleReset}>
+              {t('purger.scanAgain')}
+            </Button>
+          </>
         ) : (
           <>
             <Button size="large" appearance="subtle" icon={<ArrowSync24Regular />} onClick={handleDryRun} disabled={isRunning}>
               {phase === 'scanning' ? t('purger.scanning') : t('purger.dryRun')}
             </Button>
             {phase === 'scanned' && (
-              <Button size="large" appearance="primary" icon={<Delete24Regular />} onClick={handleClean} disabled={isRunning}>
-                {t('purger.startClean')}
+              <Button size="large" appearance="primary" icon={<Delete24Regular />} onClick={handleClean} disabled={isRunning || checkedCount === 0}>
+                {`${t('purger.startClean')} (${checkedCount}) — ${selectedSizeStr}`}
               </Button>
             )}
           </>
         )}
       </div>
 
-      {/* Summary card — above the list so always visible */}
-      {summary && (
-        <div className={`glass-card purge-summary ${summary.cleaned != null ? 'purge-summary-cleaned' : ''}`}>
-          <div className="summary-grid">
-            <div className="summary-stat main">
-              <span className="summary-value">{summary.totalSize}</span>
-              <span className="summary-label">{summary.cleaned != null ? t('purger.freedSpace') : t('purger.reclaimableSpace')}</span>
-            </div>
-            <div className="summary-stat">
-              <span className="summary-value">{summary.totalCount}</span>
-              <span className="summary-label">{t('purger.artifacts')}</span>
-            </div>
-            {summary.cleaned != null && (
-              <div className="summary-stat">
-                <span className="summary-value success-text">{summary.cleaned}</span>
-                <span className="summary-label">{t('purger.cleaned')}</span>
-              </div>
-            )}
-            {summary.failed != null && summary.failed > 0 && (
-              <div className="summary-stat">
-                <span className="summary-value failed-text">{summary.failed}</span>
-                <span className="summary-label">{t('purger.skipped')}</span>
-              </div>
-            )}
+      {/* Select all / Deselect all + total size */}
+      {phase === 'scanned' && items.length > 0 && !isRunning && (
+        <div className="purge-summary-bar">
+          <div className="select-left">
+            <button className="link-btn" onClick={allChecked ? deselectAll : selectAll}>
+              {allChecked ? t('cleaner.deselectAll') : t('cleaner.selectAll')}
+            </button>
+            <span className="selected-count">{checkedCount} / {items.length} {t('cleaner.selected')}</span>
           </div>
+          <span className="purge-summary-size">{selectedSizeStr}</span>
         </div>
       )}
+
+      {/* Cleaned summary bar */}
+      {phase === 'cleaned' && items.length > 0 && (() => {
+        // Compute stats from items (always available, fallback if summary missing)
+        const successItems = items.filter(it => it.status === 'success');
+        const failedItems = items.filter(it => it.status === 'failed');
+        const cleanedSizeMB = successItems.reduce((acc, it) => acc + it.sizeMB, 0);
+        const cleanedSizeStr = formatSize(cleanedSizeMB);
+        const successCount = summary?.cleaned ?? successItems.length;
+        const failedCount = summary?.failed ?? failedItems.length;
+        const totalSizeStr = summary?.totalSize ?? cleanedSizeStr;
+
+        return (
+          <div className="glass-card purge-clean-summary">
+            <div className="purge-clean-summary-row">
+              <div className="purge-clean-stat success">
+                <CheckmarkCircle24Filled className="icon-success" />
+                <span className="stat-value">{successCount}</span>
+                <span className="stat-label">{t('purger.cleaned')}</span>
+              </div>
+              {failedCount > 0 && (
+                <div className="purge-clean-stat failed">
+                  <DismissCircle24Filled className="icon-failed" />
+                  <span className="stat-value">{failedCount}</span>
+                  <span className="stat-label">{t('purger.failed')}</span>
+                </div>
+              )}
+              <div className="purge-clean-stat total">
+                <span className="stat-size">{totalSizeStr}</span>
+                <span className="stat-label">{t('purger.freedSpace')}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Running indicator with live status */}
       {isRunning && (
@@ -225,6 +287,14 @@ export function Purger() {
         <div className="purge-results">
           {items.map((item, i) => (
             <div key={i} className={`purge-result-item ${item.status === 'failed' ? 'failed' : ''} ${item.status === 'success' ? 'success' : ''}`}>
+              {/* Checkbox for dry run items (no status) */}
+              {!item.status && phase === 'scanned' && (
+                <Checkbox
+                  checked={!!checkedItems[i]}
+                  onChange={() => toggleItem(i)}
+                  className="purge-item-checkbox"
+                />
+              )}
               <div className="purge-result-icon">
                 {item.status === 'success' ? (
                   <CheckmarkCircle24Filled className="icon-success" />

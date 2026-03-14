@@ -87,6 +87,7 @@
     "artifacts": "產物數量",
     "cleaned": "已清理",
     "skipped": "已跳過",
+    "failed": "失敗",
     "scanAgain": "重新掃描"
   },
   "analyzer": {

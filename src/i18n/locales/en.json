@@ -87,6 +87,7 @@
     "artifacts": "Artifacts",
     "cleaned": "Cleaned",
     "skipped": "Skipped",
+    "failed": "Failed",
     "scanAgain": "Scan Again"
   },
   "analyzer": {

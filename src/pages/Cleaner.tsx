@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Button,
@@ -46,7 +46,7 @@ export function Cleaner() {
   const [cleaning, setCleaning] = useState(false);
   const [scanned, setScanned] = useState(false);
   const [sections, setSections] = useState<ScanSection[]>([]);
-  const [infoLines, setInfoLines] = useState<string[]>([]);
+  const [_infoLines, setInfoLines] = useState<string[]>([]);
   const [scanDone, setScanDone] = useState(false);
   const [error, setError] = useState('');
   const [checkedSections, setCheckedSections] = useState<Record<number, boolean>>({});
@@ -61,20 +61,7 @@ export function Cleaner() {
     { id: 'apps', label: t('cleaner.appLeftovers'), icon: <Apps24Regular />, color: 'var(--color-cyan)', desc: t('cleaner.appLeftoversDesc') },
   ];
 
-  // Calculate total size from all items
-  const getTotalStats = useCallback(() => {
-    let totalItems = 0;
-    let totalSections = sections.length;
-    sections.forEach(s => {
-      totalItems += s.items.length;
-    });
-    // Try to find summary info from infoLines
-    const sizeLine = infoLines.find(l => l.includes('Potential space:') || l.includes('Space freed:'));
-    const totalSize = sizeLine
-      ? sizeLine.replace(/.*:\s*/, '').replace(/[💾⚙📦📂✅\s]/g, '').trim()
-      : '';
-    return { totalItems, totalSections, totalSize };
-  }, [sections, infoLines]);
+
 
   // When sections arrive, auto-check and auto-expand all
   // eslint-disable-next-line react-hooks/exhaustive-deps — intentionally excluding checked/expanded states to avoid infinite re-render loops
@@ -161,31 +148,59 @@ export function Cleaner() {
   const checkedCount = Object.values(checkedSections).filter(Boolean).length;
   const allChecked = checkedCount === sections.length && sections.length > 0;
 
+  // Parse size string to bytes
+  const parseBytes = (sizeStr: string): number => {
+    const match = sizeStr.match(/([\d.]+)\s*(KB|MB|GB|B)/i);
+    if (!match) return 0;
+    const val = parseFloat(match[1]);
+    const unit = match[2].toUpperCase();
+    if (unit === 'GB') return val * 1024 * 1024 * 1024;
+    if (unit === 'MB') return val * 1024 * 1024;
+    if (unit === 'KB') return val * 1024;
+    return val;
+  };
+
+  // Format bytes to human-readable
+  const formatBytes = (bytes: number): string => {
+    if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024*1024*1024)).toFixed(1)} GB`;
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024*1024)).toFixed(1)} MB`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${Math.round(bytes)} B`;
+  };
+
   // Compute section size from items
   const getSectionSize = (section: ScanSection): string => {
-    // Try to sum numeric sizes from items
     let totalBytes = 0;
     let hasSize = false;
     for (const item of section.items) {
       if (item.size) {
         hasSize = true;
-        const match = item.size.match(/([\d.]+)\s*(KB|MB|GB|B)/i);
-        if (match) {
-          const val = parseFloat(match[1]);
-          const unit = match[2].toUpperCase();
-          if (unit === 'GB') totalBytes += val * 1024 * 1024 * 1024;
-          else if (unit === 'MB') totalBytes += val * 1024 * 1024;
-          else if (unit === 'KB') totalBytes += val * 1024;
-          else totalBytes += val;
-        }
+        totalBytes += parseBytes(item.size);
       }
     }
     if (!hasSize) return '';
-    if (totalBytes >= 1024 * 1024 * 1024) return `${(totalBytes / (1024*1024*1024)).toFixed(1)} GB`;
-    if (totalBytes >= 1024 * 1024) return `${(totalBytes / (1024*1024)).toFixed(1)} MB`;
-    if (totalBytes >= 1024) return `${(totalBytes / 1024).toFixed(1)} KB`;
-    return `${totalBytes} B`;
+    return formatBytes(totalBytes);
   };
+
+  // Calculate total size of only checked items
+  const getSelectedTotalSize = (): { size: string; bytes: number; itemCount: number } => {
+    let totalBytes = 0;
+    let itemCount = 0;
+    sections.forEach((section, si) => {
+      if (checkedSections[si] === false) return;
+      section.items.forEach((item, ii) => {
+        const key = `${si}-${ii}`;
+        if (checkedItems[key] === false) return;
+        itemCount++;
+        if (item.size) {
+          totalBytes += parseBytes(item.size);
+        }
+      });
+    });
+    return { size: formatBytes(totalBytes), bytes: totalBytes, itemCount };
+  };
+
+  const selectedTotal = scanned ? getSelectedTotalSize() : { size: '0 B', bytes: 0, itemCount: 0 };
 
   const handleScan = async () => {
     setScanning(true);
@@ -299,8 +314,6 @@ export function Cleaner() {
     return () => { unlisten.then(fn => fn()); };
   }, []);
 
-  const stats = getTotalStats();
-
   return (
     <div className="page cleaner">
       <div className="page-header">
@@ -308,8 +321,8 @@ export function Cleaner() {
         <p className="page-desc">{t('cleaner.desc')}</p>
       </div>
 
-      {/* Category cards */}
-      <div className="cleaner-categories">
+      {/* Category cards — collapse after scan to save space */}
+      <div className={`cleaner-categories ${scanned ? 'collapsed' : ''}`}>
         {categories.map((cat, i) => (
           <div key={cat.id} className={`glass-card category-card stagger-${i + 1}`}>
             <div className="category-icon" style={{ color: cat.color }}>{cat.icon}</div>
@@ -328,38 +341,23 @@ export function Cleaner() {
         </Button>
         {scanned && (
           <Button appearance="primary" size="large" icon={cleaning ? undefined : <Checkmark24Regular />} onClick={handleClean} disabled={scanning || cleaning || checkedCount === 0}>
-            {cleaning ? t('cleaner.cleaning') : `${t('cleaner.clean')} (${checkedCount})`}
+            {cleaning ? t('cleaner.cleaning') : `${t('cleaner.clean')} (${checkedCount}) — ${selectedTotal.size}`}
           </Button>
         )}
       </div>
 
-      {/* Summary card — always visible after scan, above items */}
-      {scanDone && stats.totalSize && (
-        <div className={`glass-card scan-summary ${cleaning ? 'scan-summary-cleaned' : ''}`}>
-          <div className="summary-grid">
-            <div className="summary-stat main">
-              <span className="summary-value">{stats.totalSize}</span>
-              <span className="summary-label">{cleaning ? t('cleaner.freedSpace') : t('cleaner.reclaimableSpace')}</span>
-            </div>
-            <div className="summary-stat">
-              <span className="summary-value">{stats.totalItems}</span>
-              <span className="summary-label">{t('cleaner.items')}</span>
-            </div>
-            <div className="summary-stat">
-              <span className="summary-value">{stats.totalSections}</span>
-              <span className="summary-label">{t('cleaner.categories')}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Select all / Deselect all */}
+      {/* Select all / Deselect all + total size */}
       {scanned && sections.length > 0 && !scanning && !cleaning && (
         <div className="select-actions">
-          <button className="link-btn" onClick={allChecked ? deselectAll : selectAll}>
-            {allChecked ? t('cleaner.deselectAll') : t('cleaner.selectAll')}
-          </button>
-          <span className="selected-count">{checkedCount} / {sections.length} {t('cleaner.selected')}</span>
+          <div className="select-left">
+            <button className="link-btn" onClick={allChecked ? deselectAll : selectAll}>
+              {allChecked ? t('cleaner.deselectAll') : t('cleaner.selectAll')}
+            </button>
+            <span className="selected-count">{checkedCount} / {sections.length} {t('cleaner.selected')}</span>
+          </div>
+          {selectedTotal.bytes > 0 && (
+            <span className="selected-total-size">{selectedTotal.size}</span>
+          )}
         </div>
       )}
 

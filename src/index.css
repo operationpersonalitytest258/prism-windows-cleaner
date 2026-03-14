@@ -154,6 +154,14 @@ html, body, #root {
   overflow: hidden;
 }
 
+/* Scan sections need overflow visible so expanded child items aren't clipped */
+.glass-card.scan-section {
+  overflow: visible;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: var(--color-surface-glass);
+}
+
 .glass-card::before {
   content: '';
   position: absolute;

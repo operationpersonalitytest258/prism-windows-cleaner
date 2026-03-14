@@ -398,6 +398,118 @@ pub async fn mole_purge_streaming(app: AppHandle, dry_run: bool) -> Result<MoleR
     handle.join().map_err(|_| "Thread panic".to_string())?
 }
 
+/// Purge specific build artifact paths selected by the user
+#[tauri::command]
+pub async fn mole_purge_paths(app: AppHandle, paths: Vec<String>) -> Result<MoleResult, String> {
+    let handle = std::thread::spawn(move || {
+        // Write paths to a temp file (one per line) to avoid command-line length limits
+        // Use timestamp to prevent collision if triggered multiple times
+        let temp_dir = std::env::temp_dir();
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let paths_file = temp_dir.join(format!("prism_purge_paths_{}.txt", ts));
+        let script_file = temp_dir.join(format!("prism_purge_selected_{}.ps1", ts));
+
+        std::fs::write(&paths_file, paths.join("\n"))
+            .map_err(|e| format!("Failed to write paths file: {}", e))?;
+
+        // Build a PowerShell script that reads paths from the file
+        let ps_script = format!(r#"
+$ErrorActionPreference = "SilentlyContinue"
+$totalCleaned = 0
+$totalFailed = 0
+$totalSize = 0
+$pathsFile = '{}'
+$paths = Get-Content -Path $pathsFile -Encoding UTF8
+
+foreach ($p in $paths) {{
+    $p = $p.Trim()
+    if (-not $p) {{ continue }}
+    if (Test-Path $p) {{
+        $sizeMB = [math]::Round((Get-ChildItem -Path $p -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
+        try {{
+            Remove-Item -Path $p -Recurse -Force -ErrorAction Stop
+            $totalCleaned++
+            $totalSize += $sizeMB
+            Write-Output "[OK] $sizeMB MB  $p"
+        }} catch {{
+            $totalFailed++
+            Write-Output "[FAIL] $sizeMB MB  $p ($($_.Exception.Message))"
+        }}
+    }} else {{
+        Write-Output "[SKIP] $p"
+    }}
+}}
+
+$totalGB = [math]::Round($totalSize / 1024, 2)
+if ($totalGB -ge 1) {{ $sizeStr = "$totalGB GB" }} else {{ $sizeStr = "$totalSize MB" }}
+$totalCount = $totalCleaned + $totalFailed
+Write-Output ""
+Write-Output "=== Summary ==="
+Write-Output "Total: $totalCount | Cleaned: $totalCleaned | Failed: $totalFailed | Size: $sizeStr"
+"#, paths_file.to_string_lossy().replace('\'', "''"));
+
+        std::fs::write(&script_file, &ps_script)
+            .map_err(|e| format!("Failed to write script file: {}", e))?;
+
+        let mut cmd = Command::new("powershell");
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        cmd.arg("-ExecutionPolicy").arg("Bypass")
+            .arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-File")
+            .arg(script_file.to_string_lossy().as_ref());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn: {}", e))?;
+        let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+        let reader = std::io::BufReader::new(stdout);
+
+        let mut full_stdout = String::new();
+
+        for line in reader.lines() {
+            match line {
+                Ok(line_str) => {
+                    full_stdout.push_str(&line_str);
+                    full_stdout.push('\n');
+
+                    if let Some(event) = parse_purge_line(&line_str) {
+                        let _ = app.emit("purge-progress", &event);
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+
+        let status = child.wait().map_err(|e| format!("Process error: {}", e))?;
+        let _ = app.emit("purge-progress", &PurgeEvent::Done { success: status.success() });
+
+        // Cleanup temp files
+        let _ = std::fs::remove_file(&paths_file);
+        let _ = std::fs::remove_file(&script_file);
+
+        let stderr = child.stderr
+            .map(|mut s| {
+                let mut buf = String::new();
+                std::io::Read::read_to_string(&mut s, &mut buf).ok();
+                buf
+            })
+            .unwrap_or_default();
+
+        Ok(MoleResult {
+            success: status.success(),
+            stdout: full_stdout,
+            stderr,
+            exit_code: status.code(),
+        })
+    });
+    handle.join().map_err(|_| "Thread panic".to_string())?
+}
+
 /// Structured purge event emitted to the frontend in real-time
 #[derive(Debug, Serialize, Clone)]
 #[serde(tag = "type")]
@@ -428,6 +540,12 @@ static PURGE_SUMMARY_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|
 static PURGE_CLEAN_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
     Regex::new(r"清理完成.*?(\d+)\s*個成功.*?(\d+)\s*個跳過.*?(\d+\.?\d*)\s*GB").unwrap()
 });
+static PURGE_EN_SUMMARY_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+    Regex::new(r"Total:\s*(\d+)\s*\|\s*Cleaned:\s*(\d+)\s*\|\s*Failed:\s*(\d+)\s*\|\s*Size:\s*(.+)").unwrap()
+});
+static PURGE_SKIP_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+    Regex::new(r"^\s*\[SKIP\]\s+(.+)$").unwrap()
+});
 
 /// Parse a single line of purge output into a PurgeEvent
 fn parse_purge_line(line: &str) -> Option<PurgeEvent> {
@@ -455,6 +573,13 @@ fn parse_purge_line(line: &str) -> Option<PurgeEvent> {
         return Some(PurgeEvent::Item { path: full_path, name, size_mb, status: Some("failed".into()) });
     }
 
+    // Parse: "  [SKIP]  D:\path" (path no longer exists)
+    if let Some(caps) = PURGE_SKIP_RE.captures(&clean) {
+        let full_path = caps[1].trim().to_string();
+        let name = full_path.split('\\').last().unwrap_or(&full_path).to_string();
+        return Some(PurgeEvent::Item { path: full_path, name, size_mb: 0.0, status: Some("failed".into()) });
+    }
+
     // Parse: "  35405.1 MB  D:\path\to\target" (dry-run item)
     if let Some(caps) = PURGE_ITEM_RE.captures(&clean) {
         let size_mb: f64 = caps[1].parse().unwrap_or(0.0);
@@ -480,6 +605,16 @@ fn parse_purge_line(line: &str) -> Option<PurgeEvent> {
             total_size: format!("{} GB", &caps[3]),
             cleaned: Some(caps[1].parse().unwrap_or(0)),
             failed: Some(caps[2].parse().unwrap_or(0)),
+        });
+    }
+
+    // Parse English summary: "Total: 152 | Cleaned: 100 | Failed: 52 | Size: 5.5 GB"
+    if let Some(caps) = PURGE_EN_SUMMARY_RE.captures(&clean) {
+        return Some(PurgeEvent::Summary {
+            total_count: caps[1].parse().unwrap_or(0),
+            total_size: caps[4].trim().to_string(),
+            cleaned: Some(caps[2].parse().unwrap_or(0)),
+            failed: Some(caps[3].parse().unwrap_or(0)),
         });
     }
 
