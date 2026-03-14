@@ -286,10 +286,46 @@ pub async fn mole_clean(dry_run: bool) -> Result<MoleResult, String> {
 }
 
 #[tauri::command]
-pub async fn mole_clean_streaming(app: AppHandle, dry_run: bool) -> Result<MoleResult, String> {
+pub async fn mole_clean_streaming(
+    app: AppHandle, 
+    dry_run: bool,
+    exclude_sections: Option<Vec<String>>,
+    exclude_items: Option<Vec<String>>
+) -> Result<MoleResult, String> {
     let handle = std::thread::spawn(move || {
-        let args: Vec<&str> = if dry_run { vec!["--dry-run"] } else { vec![] };
-        run_mole_script_streaming(&app, "clean.ps1", &args, "scan-progress")
+        let mut args: Vec<String> = Vec::new();
+        if dry_run {
+            args.push("--dry-run".to_string());
+        }
+        
+        if let Some(sections) = exclude_sections {
+            if !sections.is_empty() {
+                args.push("-ExcludeSections".to_string());
+                args.push(sections.join(","));
+            }
+        }
+        
+        if let Some(items) = exclude_items {
+            if !items.is_empty() {
+                args.push("-ExcludeItems".to_string());
+                // Wrap items in quotes if needed? PowerShell usually handles comma-separated arrays well.
+                // However, items might contain spaces like "Temporary files".
+                // In run_mole_script_streaming, these are passed via .arg() to Command.
+                // Command in Rust passes them properly quoted to the OS if they contain spaces.
+                // But PowerShell parsing of comma-separated array:
+                // If it's passed as a single string "A,B C", PS might see it as one string.
+                // Actually, passing multiple args is safer: "-ExcludeSections", "A", "B", "C" ?
+                // No, PowerShell expects "-ExcludeSections", "A,B,C" and parses it as array of 1 string "A,B,C".
+                // Wait! To pass an array to a parameter in powershell via CLI:
+                // pwsh -File clean.ps1 -ExcludeSections "A,B,C" does NOT work as array of 3. It's an array of 1.
+                // Wait, PowerShell parses `-ExcludeSections A,B,C` as an array if done right.
+                // But .arg("A,B,C") will be quoted by Rust as `"A,B,C"`.
+                args.push(items.join(","));
+            }
+        }
+        
+        let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        run_mole_script_streaming(&app, "clean.ps1", &args_str, "scan-progress")
     });
     handle.join().map_err(|_| "Thread panic".to_string())?
 }

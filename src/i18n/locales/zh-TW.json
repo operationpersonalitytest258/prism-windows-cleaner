@@ -53,7 +53,11 @@
     "freedSpace": "已釋放空間",
     "items": "項目",
     "categories": "分類",
-    "sectionItems": "{{count}} 項"
+    "sectionItems": "{{count}} 項",
+    "itemsLabel": "項",
+    "selectAll": "全選",
+    "deselectAll": "取消全選",
+    "selected": "已選"
   },
   "optimizer": {
     "title": "系統優化",

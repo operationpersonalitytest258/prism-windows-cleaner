@@ -53,7 +53,11 @@
     "freedSpace": "已释放空间",
     "items": "项目",
     "categories": "分类",
-    "sectionItems": "{{count}} 项"
+    "sectionItems": "{{count}} 项",
+    "itemsLabel": "项",
+    "selectAll": "全选",
+    "deselectAll": "取消全选",
+    "selected": "已选"
   },
   "optimizer": {
     "title": "系统优化",
