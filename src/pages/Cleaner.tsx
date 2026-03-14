@@ -77,6 +77,7 @@ export function Cleaner() {
   }, [sections, infoLines]);
 
   // When sections arrive, auto-check and auto-expand all
+  // eslint-disable-next-line react-hooks/exhaustive-deps — intentionally excluding checked/expanded states to avoid infinite re-render loops
   useEffect(() => {
     const newChecked: Record<number, boolean> = {};
     const newExpanded: Record<number, boolean> = {};
@@ -387,9 +388,10 @@ export function Cleaner() {
                 </span>
                 <span className="scan-section-right">
                   {/* Section total size */}
-                  {section.done && getSectionSize(section) && (
-                    <span className="scan-section-size">{getSectionSize(section)}</span>
-                  )}
+                  {(() => {
+                    const sectionSize = section.done ? getSectionSize(section) : '';
+                    return sectionSize ? <span className="scan-section-size">{sectionSize}</span> : null;
+                  })()}
                   {/* Item count badge */}
                   {section.items.length > 0 && (
                     <span className="scan-section-count">{section.items.length} {t('cleaner.itemsLabel')}</span>
@@ -419,7 +421,7 @@ export function Cleaner() {
                       </span>
                       <div className="scan-item-meta">
                         {item.count != null && item.count > 0 && (
-                          <span className="scan-item-count">{item.count} items</span>
+                          <span className="scan-item-count">{item.count} {t('cleaner.itemsLabel')}</span>
                         )}
                         {item.size && <span className="scan-item-size">{item.size}</span>}
                       </div>

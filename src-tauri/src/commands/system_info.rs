@@ -78,7 +78,7 @@ fn collect_system_info(networks_arc: std::sync::Arc<std::sync::Mutex<Networks>>)
     let mut current_transmitted: u64 = 0;
 
     if let Ok(mut networks) = networks_arc.lock() {
-        networks.refresh_list();
+        networks.refresh(false);
         for (_name, data) in networks.list() {
             total_received += data.total_received();
             total_transmitted += data.total_transmitted();
