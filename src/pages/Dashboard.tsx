@@ -96,7 +96,8 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           <StatCard
             icon={<Wifi124Regular />}
             label={t('dashboard.network')}
-            value={loading ? '...' : `↓${formatNet(info.networkReceivedMb)}  ↑${formatNet(info.networkTransmittedMb)}`}
+            value={loading ? '...' : `↓ ${formatNet(info.networkRxSpeedMb)}/s   ↑ ${formatNet(info.networkTxSpeedMb)}/s`}
+            sub={loading ? '' : `Total: ↓ ${formatNet(info.networkReceivedMb)}   ↑ ${formatNet(info.networkTransmittedMb)}`}
             color="var(--color-accent)"
             stagger={5}
           />

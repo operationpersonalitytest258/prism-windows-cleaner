@@ -2,7 +2,10 @@ mod commands;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let networks = std::sync::Arc::new(std::sync::Mutex::new(sysinfo::Networks::new_with_refreshed_list()));
+
     tauri::Builder::default()
+        .manage(networks)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![

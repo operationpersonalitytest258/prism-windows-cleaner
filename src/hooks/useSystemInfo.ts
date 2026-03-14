@@ -15,6 +15,8 @@ export interface SystemInfo {
   uptimeHours: number;
   networkReceivedMb: number;
   networkTransmittedMb: number;
+  networkRxSpeedMb: number;
+  networkTxSpeedMb: number;
   healthScore: number;
 }
 
@@ -32,6 +34,8 @@ interface RustSystemInfo {
   uptime_hours: number;
   network_received_mb: number;
   network_transmitted_mb: number;
+  network_rx_speed_mb: number;
+  network_tx_speed_mb: number;
   health_score: number;
 }
 
@@ -49,6 +53,8 @@ const FALLBACK: SystemInfo = {
   uptimeHours: 0,
   networkReceivedMb: 0,
   networkTransmittedMb: 0,
+  networkRxSpeedMb: 0,
+  networkTxSpeedMb: 0,
   healthScore: 0,
 };
 
@@ -67,6 +73,8 @@ function mapRustToTs(data: RustSystemInfo): SystemInfo {
     uptimeHours: data.uptime_hours,
     networkReceivedMb: data.network_received_mb,
     networkTransmittedMb: data.network_transmitted_mb,
+    networkRxSpeedMb: data.network_rx_speed_mb,
+    networkTxSpeedMb: data.network_tx_speed_mb,
     healthScore: data.health_score,
   };
 }
@@ -94,7 +102,7 @@ export function useSystemInfo() {
 
   useEffect(() => {
     fetchInfo();
-    const interval = setInterval(fetchInfo, 5000);
+    const interval = setInterval(fetchInfo, 1000);
     return () => clearInterval(interval);
   }, [fetchInfo]);
 

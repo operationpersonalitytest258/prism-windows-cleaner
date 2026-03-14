@@ -16,6 +16,8 @@ pub struct SystemInfoData {
     pub uptime_hours: f64,
     pub network_received_mb: f64,
     pub network_transmitted_mb: f64,
+    pub network_rx_speed_mb: f64,
+    pub network_tx_speed_mb: f64,
     pub health_score: u8,
 }
 
@@ -28,7 +30,7 @@ fn calculate_health_score(cpu: f64, mem_pct: f64, disk_pct: f64) -> u8 {
     score as u8
 }
 
-fn collect_system_info() -> SystemInfoData {
+fn collect_system_info(networks_arc: std::sync::Arc<std::sync::Mutex<Networks>>) -> SystemInfoData {
     let mut sys = System::new_all();
     std::thread::sleep(std::time::Duration::from_millis(100));
     sys.refresh_all();
@@ -70,12 +72,19 @@ fn collect_system_info() -> SystemInfoData {
     };
 
     // Network
-    let networks = Networks::new_with_refreshed_list();
     let mut total_received: u64 = 0;
     let mut total_transmitted: u64 = 0;
-    for (_name, data) in networks.list() {
-        total_received += data.total_received();
-        total_transmitted += data.total_transmitted();
+    let mut current_received: u64 = 0;
+    let mut current_transmitted: u64 = 0;
+
+    if let Ok(mut networks) = networks_arc.lock() {
+        networks.refresh_list();
+        for (_name, data) in networks.list() {
+            total_received += data.total_received();
+            total_transmitted += data.total_transmitted();
+            current_received += data.received();
+            current_transmitted += data.transmitted();
+        }
     }
 
     // OS info
@@ -103,6 +112,8 @@ fn collect_system_info() -> SystemInfoData {
         uptime_hours: (uptime_hours * 10.0).round() / 10.0,
         network_received_mb: (total_received as f64 / 1_048_576.0 * 10.0).round() / 10.0,
         network_transmitted_mb: (total_transmitted as f64 / 1_048_576.0 * 10.0).round() / 10.0,
+        network_rx_speed_mb: (current_received as f64 / 1_048_576.0 * 10.0).round() / 10.0,
+        network_tx_speed_mb: (current_transmitted as f64 / 1_048_576.0 * 10.0).round() / 10.0,
         health_score,
     }
 }
@@ -110,8 +121,11 @@ fn collect_system_info() -> SystemInfoData {
 /// Tauri command — runs the blocking sysinfo call on a background thread
 /// to avoid blocking the async runtime.
 #[tauri::command]
-pub async fn get_system_info() -> Result<SystemInfoData, String> {
-    let handle = std::thread::spawn(collect_system_info);
+pub async fn get_system_info(
+    networks_state: tauri::State<'_, std::sync::Arc<std::sync::Mutex<Networks>>>,
+) -> Result<SystemInfoData, String> {
+    let networks_arc = networks_state.inner().clone();
+    let handle = std::thread::spawn(move || collect_system_info(networks_arc));
     handle.join().map_err(|_| "Failed to collect system info".into())
 }
 
@@ -142,7 +156,8 @@ mod tests {
 
     #[test]
     fn collect_returns_valid_real_data() {
-        let info = collect_system_info();
+        let networks = std::sync::Arc::new(std::sync::Mutex::new(Networks::new_with_refreshed_list()));
+        let info = collect_system_info(networks);
         assert!(!info.cpu_name.is_empty());
         assert!(info.cpu_cores > 0);
         assert!(info.memory_total_gb > 1.0);
@@ -160,14 +175,16 @@ mod tests {
 
     #[test]
     fn collect_is_thread_safe() {
-        let h = std::thread::spawn(collect_system_info);
+        let networks = std::sync::Arc::new(std::sync::Mutex::new(Networks::new_with_refreshed_list()));
+        let h = std::thread::spawn(move || collect_system_info(networks));
         let info = h.join().expect("thread panicked");
         assert!(info.cpu_cores > 0);
     }
 
     #[test]
     fn serialization_round_trip() {
-        let info = collect_system_info();
+        let networks = std::sync::Arc::new(std::sync::Mutex::new(Networks::new_with_refreshed_list()));
+        let info = collect_system_info(networks);
         let json = serde_json::to_string(&info).expect("serialize");
         assert!(json.contains("cpu_name"));
         assert!(json.contains("health_score"));
